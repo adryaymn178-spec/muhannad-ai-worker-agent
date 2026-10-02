@@ -6,7 +6,12 @@ from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
 import os
-import google.generativeai as genai
+
+try:
+    import google.generativeai as genai
+    GENAI_AVAILABLE = True
+except ImportError:
+    GENAI_AVAILABLE = False
 
 app = FastAPI(title="Muhannad AI Worker Agent", version="0.1.0")
 
@@ -20,7 +25,7 @@ app.add_middleware(
 
 # ====== Gemini AI ======
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-if GEMINI_API_KEY:
+if GEMINI_API_KEY and GENAI_AVAILABLE:
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel("gemini-1.5-flash")
 else:
@@ -28,7 +33,7 @@ else:
 
 def ai_generate(prompt: str) -> str:
     if not model:
-        return "⚠️ لم يتم ضبط GEMINI_API_KEY. النتيجة تجريبية."
+        return "⚠️ الذكاء الاصطناعي غير مفعّل. تأكد من GEMINI_API_KEY و requirements.txt"
     try:
         response = model.generate_content(prompt)
         return response.text
@@ -132,7 +137,6 @@ def execute_task(body: TaskExecute):
     if agent["status"] != "running":
         return {"ok": False, "error": "agent is paused"}
 
-    # ====== AI حقيقي ======
     prompts = {
         "writing": f"أنت كاتب محتوى محترف. نفّذ المهمة التالية بالعربية بأسلوب جذاب واحترافي:\n\n{task['description']}",
         "translation": f"ترجم النص التالي إلى العربية ترجمة احترافية:\n\n{task['description']}",
