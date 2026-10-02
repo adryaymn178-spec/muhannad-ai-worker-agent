@@ -1,5 +1,4 @@
-const API = "http://127.0.0.1:8000/api";
-
+const API = window.location.origin + "/api";
 async function api(path, options={}) {
   const r = await fetch(API + path, {
     headers: {"Content-Type":"application/json"},
