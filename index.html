@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Muhannad AI Worker</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div>
+    <h1>Muhannad AI 🤖</h1>
+    <p>وكيل المهام الذكي</p>
+  </div>
+  <button id="toggle" class="primary">إيقاف الوكيل</button>
+</header>
+
+<main>
+  <section class="stats">
+    <div class="card"><span>حالة الوكيل</span><strong id="agentStatus">...</strong></div>
+    <div class="card"><span>المهام</span><strong id="taskCount">0</strong></div>
+    <div class="card"><span>الأرباح المكتملة</span><strong id="total">$0.00</strong></div>
+    <div class="card"><span>قيد المراجعة</span><strong id="pending">$0.00</strong></div>
+  </section>
+
+  <section class="panel">
+    <div class="panelHead">
+      <h2>المهام</h2>
+      <button onclick="loadAll()">تحديث</button>
+    </div>
+    <div id="tasks"></div>
+  </section>
+
+  <section class="panel">
+    <h2>سجل العمليات</h2>
+    <div id="logs"></div>
+  </section>
+</main>
+
+<div id="toast"></div>
+<script src="app.js"></script>
+</body>
+</html>
