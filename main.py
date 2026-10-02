@@ -1,8 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional
+import os
+import google.generativeai as genai
 
 app = FastAPI(title="Muhannad AI Worker Agent", version="0.1.0")
 
@@ -14,10 +18,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ====== Gemini AI ======
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-1.5-flash")
+else:
+    model = None
+
+def ai_generate(prompt: str) -> str:
+    if not model:
+        return "⚠️ لم يتم ضبط GEMINI_API_KEY. النتيجة تجريبية."
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"خطأ في AI: {str(e)}"
+
+# ====== State ======
 agent = {
     "name": "Muhannad AI",
     "status": "running",
-    "skills": ["writing", "translation", "summarization", "data_entry"],
+    "skills": ["writing", "translation", "summarization", "data_entry", "research", "data_analysis", "image_description"],
 }
 
 tasks = [
@@ -59,9 +81,10 @@ def add_log(message, log_type="agent"):
         "type": log_type
     })
 
+# ====== Routes ======
 @app.get("/api/health")
 def health():
-    return {"ok": True, "service": "Muhannad AI Worker Agent"}
+    return {"ok": True, "service": "Muhannad AI Worker Agent", "ai": "ready" if model else "missing key"}
 
 @app.get("/api/agent")
 def get_agent():
@@ -90,7 +113,7 @@ def analyze_task(body: TaskExecute):
         reason = "المهارة غير مفعلة"
     else:
         decision = "accepted"
-        reason = "المهمة مناسبة للنسخة التجريبية"
+        reason = "المهمة مناسبة وسيتم تنفيذها بالذكاء الاصطناعي"
 
     add_log(f"تم تحليل المهمة #{task['id']}: {decision}")
     return {
@@ -109,16 +132,27 @@ def execute_task(body: TaskExecute):
     if agent["status"] != "running":
         return {"ok": False, "error": "agent is paused"}
 
-    # تنفيذ تجريبي فقط؛ لا توجد منصة خارجية في هذه النسخة.
-    if task["category"] == "writing":
-        result = "وصف تجريبي: منتج عملي بجودة ممتازة وتصميم أنيق، مناسب للاستخدام اليومي ويجمع بين البساطة والفائدة."
-    elif task["category"] == "translation":
-        result = "ترجمة تجريبية جاهزة للمراجعة والتسليم."
-    else:
-        result = "نتيجة تجريبية جاهزة للمراجعة."
+    # ====== AI حقيقي ======
+    prompts = {
+        "writing": f"أنت كاتب محتوى محترف. نفّذ المهمة التالية بالعربية بأسلوب جذاب واحترافي:\n\n{task['description']}",
+        "translation": f"ترجم النص التالي إلى العربية ترجمة احترافية:\n\n{task['description']}",
+        "summarization": f"لخّص النص التالي في نقاط مختصرة:\n\n{task['description']}",
+        "research": f"ابحث وقدّم معلومات شاملة وموثوقة عن:\n\n{task['description']}",
+        "data_analysis": f"حلّل البيانات التالية وقدّم رؤى واستنتاجات:\n\n{task['description']}",
+        "image_description": f"اكتب وصفًا تفصيليًا احترافيًا لـ:\n\n{task['description']}",
+        "data_entry": f"نظّم وأدخل البيانات التالية بشكل مرتب:\n\n{task['description']}",
+    }
+
+    prompt = prompts.get(task["category"], f"نفّذ المهمة التالية:\n\n{task['description']}")
+
+    if body.user_input:
+        prompt += f"\n\nملاحظات إضافية من المستخدم: {body.user_input}"
+
+    result = ai_generate(prompt)
 
     task["status"] = "review"
-    add_log(f"تم تنفيذ المهمة #{task['id']} وأصبحت بانتظار المراجعة")
+    task["result"] = result
+    add_log(f"تم تنفيذ المهمة #{task['id']} بالذكاء الاصطناعي")
     return {
         "ok": True,
         "requires_approval": True,
@@ -152,3 +186,18 @@ def get_earnings():
         "pending": review,
         "currency": "USD"
     }
+
+# ====== تقديم الواجهة ======
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+@app.get("/")
+def serve_index():
+    return FileResponse(os.path.join(BASE_DIR, "index.html"))
+
+@app.get("/style.css")
+def serve_css():
+    return FileResponse(os.path.join(BASE_DIR, "style.css"))
+
+@app.get("/app.js")
+def serve_js():
+    return FileResponse(os.path.join(BASE_DIR, "app.js"))
