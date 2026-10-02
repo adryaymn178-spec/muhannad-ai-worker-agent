@@ -13,7 +13,7 @@ try:
 except ImportError:
     GENAI_AVAILABLE = False
 
-app = FastAPI(title="Muhannad AI Worker Agent", version="0.1.0")
+app = FastAPI(title="Muhannad AI Worker Agent", version="0.2.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -27,7 +27,7 @@ app.add_middleware(
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 if GEMINI_API_KEY and GENAI_AVAILABLE:
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.0-flash")
 else:
     model = None
 
