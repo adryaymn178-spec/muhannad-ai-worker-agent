@@ -2,7 +2,7 @@ import os
 import logging
 from datetime import datetime
 from fastapi import FastAPI, Request
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, ContextTypes, filters
 import google.generativeai as genai
 
@@ -12,12 +12,34 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 logging.basicConfig(format="%(asctime)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Gemini
+# ====== Gemini مع اختيار موديل يعمل ======
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel("gemini-2.0-flash")
+    # ترتيب الموديلات من الأحدث للأقدم - بيختار أول واحد شغال
+    MODEL_NAMES = [
+        "gemini-flash-latest",
+        "gemini-2.5-flash",
+        "gemini-2.0-flash-exp",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash-latest",
+        "gemini-1.5-flash",
+    ]
+    model = None
+    for name in MODEL_NAMES:
+        try:
+            test_model = genai.GenerativeModel(name)
+            test_model.generate_content("test")
+            model = test_model
+            logger.info(f"✅ استخدمنا الموديل: {name}")
+            break
+        except Exception as e:
+            logger.warning(f"❌ الموديل {name} مش شغال: {e}")
+            continue
+    if model is None:
+        logger.error("⚠️ مفيش موديل شغال!")
 else:
     model = None
+
 
 def ai_generate(prompt: str) -> str:
     if not model:
@@ -25,29 +47,35 @@ def ai_generate(prompt: str) -> str:
     try:
         return model.generate_content(prompt).text
     except Exception as e:
-        return f"خطأ: {str(e)}"
+        return f"خطأ في AI: {str(e)}"
+
 
 SECTIONS = {
-    "writing": {"name": "✍️ كتابة محتوى", "prompt": "أنت كاتب محتوى محترف. اكتب المحتوى التالي بالعربية بأسلوب جذاب:\n\n{text}"},
-    "translation": {"name": "🌐 ترجمة", "prompt": "ترجم النص التالي ترجمة احترافية (عربي ↔ إنجليزي):\n\n{text}"},
-    "design": {"name": "🎨 وصف تصميم", "prompt": "أنت مصمم محترف. اكتب وصفًا تفصيليًا احترافيًا لـ:\n\n{text}"},
-    "analysis": {"name": "📊 تحليل", "prompt": "حلّل التالي وقدّم رؤى واستنتاجات:\n\n{text}"},
-    "research": {"name": "🔍 بحث", "prompt": "قدّم معلومات شاملة وموثوقة عن:\n\n{text}"},
-    "summary": {"name": "📝 تلخيص", "prompt": "لخّص التالي في نقاط مختصرة:\n\n{text}"},
+    "writing": {"name": "✍️ كتابة محتوى", "prompt": "أنت كاتب محتوى محترف. اكتب المحتوى التالي بالعربية بأسلوب جذاب واحترافي:\n\n{text}"},
+    "translation": {"name": "🌐 ترجمة", "prompt": "ترجم النص التالي ترجمة احترافية دقيقة (لو إنجليزي → عربي، ولو عربي → إنجليزي):\n\n{text}"},
+    "design": {"name": "🎨 وصف تصميم", "prompt": "أنت مصمم محترف. اكتب وصفًا تفصيليًا احترافيًا واحترافيًا لـ:\n\n{text}"},
+    "analysis": {"name": "📊 تحليل", "prompt": "أنت محلل بيانات محترف. حلّل التالي وقدّم رؤى واستنتاجات واضحة:\n\n{text}"},
+    "research": {"name": "🔍 بحث", "prompt": "أنت باحث محترف. قدّم معلومات شاملة وموثوقة عن:\n\n{text}"},
+    "summary": {"name": "📝 تلخيص", "prompt": "لخّص النص التالي في نقاط واضحة ومختصرة:\n\n{text}"},
     "email": {"name": "📧 إيميل", "prompt": "اكتب إيميل احترافي بالعربية بناءً على:\n\n{text}"},
     "social": {"name": "📱 سوشيال ميديا", "prompt": "اكتب منشور جذاب للسوشيال ميديا عن:\n\n{text}"},
-    "code": {"name": "💻 كود", "prompt": "اكتب كودًا نظيفًا لـ:\n\n{text}"},
+    "code": {"name": "💻 كود", "prompt": "أنت مبرمج محترف. اكتب كودًا نظيفًا وموثقًا لـ:\n\n{text}"},
 }
 
 user_state = {}
 user_history = {}
+
 
 # ====== Handlers ======
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_state[user_id] = None
     name = update.effective_user.first_name or "صديقي"
-    welcome = f"👋 أهلًا {name}!\n\nأنا *Muhannad AI* — وكيلك الذكي 🤖\n\nاختر القسم:"
+    welcome = (
+        f"👋 أهلًا {name}!\n\n"
+        f"أنا *Muhannad AI* — وكيلك الذكي المتعدد الأقسام 🤖\n\n"
+        f"اختر القسم اللي عايز تشتغل فيه:"
+    )
     keyboard = [
         [InlineKeyboardButton(SECTIONS["writing"]["name"], callback_data="section_writing"),
          InlineKeyboardButton(SECTIONS["translation"]["name"], callback_data="section_translation")],
@@ -63,15 +91,23 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ]
     await update.message.reply_text(welcome, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = ("🤖 *كيف تستخدم البوت:*\n\n"
-            "1️⃣ اضغط /start\n2️⃣ اختر القسم\n3️⃣ اكتب المهمة\n4️⃣ استلم النتيجة\n\n"
-            "/cancel — إلغاء")
+    text = (
+        "🤖 *كيف تستخدم البوت:*\n\n"
+        "1️⃣ اضغط /start\n"
+        "2️⃣ اختر القسم\n"
+        "3️⃣ اكتب المهمة\n"
+        "4️⃣ استلم النتيجة\n\n"
+        "/cancel — إلغاء"
+    )
     await update.message.reply_text(text, parse_mode="Markdown")
+
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_state[update.effective_user.id] = None
-    await update.message.reply_text("✅ تم الإلغاء. اضغط /start للبدء.")
+    await update.message.reply_text("✅ تم الإلغاء. اضغط /start للبدء من جديد.")
+
 
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -97,7 +133,12 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.edit_message_text(text, parse_mode="Markdown")
 
     elif data == "about":
-        await query.edit_message_text("🤖 *Muhannad AI Worker*\n\nوكيل ذكي متعدد الأقسام مدعوم بـ Gemini.\n\nالإصدار 2.0", parse_mode="Markdown")
+        await query.edit_message_text(
+            "🤖 *Muhannad AI Worker*\n\n"
+            "وكيل ذكي متعدد الأقسام مدعوم بـ Google Gemini.\n\n"
+            "الإصدار: 2.0",
+            parse_mode="Markdown"
+        )
 
     elif data == "back":
         keyboard = [
@@ -115,6 +156,7 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await query.edit_message_text("🤖 اختر القسم:", reply_markup=InlineKeyboardMarkup(keyboard))
 
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text
@@ -125,14 +167,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     section = SECTIONS[section_key]
-    thinking_msg = await update.message.reply_text(f"⏳ جاري التنفيذ...")
+    thinking_msg = await update.message.reply_text("⏳ جاري التنفيذ...")
 
     prompt = section["prompt"].format(text=text)
     result = ai_generate(prompt)
 
     if user_id not in user_history:
         user_history[user_id] = []
-    user_history[user_id].append({"section": section["name"], "time": datetime.now().strftime("%H:%M"), "input": text[:50]})
+    user_history[user_id].append({
+        "section": section["name"],
+        "time": datetime.now().strftime("%H:%M"),
+        "input": text[:50]
+    })
 
     header = f"✅ *نتيجة {section['name']}*\n\n"
     full_msg = header + result
@@ -144,9 +190,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         for i in range(0, len(result), 4000):
             await update.message.reply_text(result[i:i+4000])
 
-    keyboard = [[InlineKeyboardButton("🔄 مهمة تانية", callback_data=f"section_{section_key}"),
-                 InlineKeyboardButton("🏠 القائمة", callback_data="back")]]
+    keyboard = [[
+        InlineKeyboardButton("🔄 مهمة تانية", callback_data=f"section_{section_key}"),
+        InlineKeyboardButton("🏠 القائمة", callback_data="back")
+    ]]
     await update.message.reply_text("اختر:", reply_markup=InlineKeyboardMarkup(keyboard))
+
 
 # ====== FastAPI App ======
 application = Application.builder().token(TELEGRAM_TOKEN).build()
@@ -158,13 +207,16 @@ application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_m
 
 api = FastAPI()
 
+
 @api.get("/")
 def root():
     return {"status": "bot is running", "service": "Muhannad AI Telegram Bot"}
 
+
 @api.get("/api/health")
 def health():
-    return {"ok": True}
+    return {"ok": True, "model": str(model) if model else "none"}
+
 
 @api.post("/webhook")
 async def webhook(request: Request):
@@ -177,6 +229,7 @@ async def webhook(request: Request):
         logger.error(f"Error: {e}")
         return {"ok": False, "error": str(e)}
 
+
 @api.on_event("startup")
 async def startup():
     await application.initialize()
@@ -185,10 +238,11 @@ async def startup():
     if webhook_url:
         try:
             await application.bot.set_webhook(url=f"{webhook_url}/webhook")
-            logger.info(f"Webhook set to {webhook_url}/webhook")
+            logger.info(f"✅ Webhook set to {webhook_url}/webhook")
         except Exception as e:
-            logger.error(f"Webhook error: {e}")
-    logger.info("Bot started")
+            logger.error(f"❌ Webhook error: {e}")
+    logger.info("🤖 Bot started")
+
 
 @api.on_event("shutdown")
 async def shutdown():
