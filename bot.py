@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 from datetime import datetime
 from fastapi import FastAPI, Request
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -15,7 +16,6 @@ logger = logging.getLogger(__name__)
 # ====== Gemini مع اختيار موديل يعمل ======
 if GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
-    # ترتيب الموديلات من الأحدث للأقدم - بيختار أول واحد شغال
     MODEL_NAMES = [
         "gemini-flash-latest",
         "gemini-2.5-flash",
@@ -157,21 +157,19 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("🤖 اختر القسم:", reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    text = update.message.text
-    section_key = user_state.get(user_id)
-
-    if not section_key:
-        await update.message.reply_text("⚠️ اختر قسم أول من /start")
-        return
-
+async def process_ai_task(update, context, user_id, text, section_key, thinking_msg):
+    """بيشتغل في الخلفية"""
     section = SECTIONS[section_key]
-    thinking_msg = await update.message.reply_text("⏳ جاري التنفيذ...")
-
     prompt = section["prompt"].format(text=text)
-    result = ai_generate(prompt)
 
+    # تشغيل Gemini في thread منفصل
+    loop = asyncio.get_event_loop()
+    try:
+        result = await loop.run_in_executor(None, ai_generate, prompt)
+    except Exception as e:
+        result = f"خطأ: {str(e)}"
+
+    # حفظ في السجل
     if user_id not in user_history:
         user_history[user_id] = []
     user_history[user_id].append({
@@ -183,18 +181,49 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     header = f"✅ *نتيجة {section['name']}*\n\n"
     full_msg = header + result
 
-    if len(full_msg) <= 4000:
-        await thinking_msg.edit_text(full_msg, parse_mode="Markdown")
-    else:
-        await thinking_msg.edit_text(header, parse_mode="Markdown")
-        for i in range(0, len(result), 4000):
-            await update.message.reply_text(result[i:i+4000])
+    try:
+        if len(full_msg) <= 4000:
+            await thinking_msg.edit_text(full_msg, parse_mode="Markdown")
+        else:
+            await thinking_msg.edit_text(header, parse_mode="Markdown")
+            for i in range(0, len(result), 4000):
+                await update.message.reply_text(result[i:i+4000])
+    except Exception as e:
+        logger.error(f"Edit failed: {e}")
+        try:
+            await update.message.reply_text(full_msg[:4000])
+        except:
+            pass
 
     keyboard = [[
         InlineKeyboardButton("🔄 مهمة تانية", callback_data=f"section_{section_key}"),
         InlineKeyboardButton("🏠 القائمة", callback_data="back")
     ]]
-    await update.message.reply_text("اختر:", reply_markup=InlineKeyboardMarkup(keyboard))
+    try:
+        await update.message.reply_text("اختر:", reply_markup=InlineKeyboardMarkup(keyboard))
+    except:
+        pass
+
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    text = update.message.text
+    section_key = user_state.get(user_id)
+
+    if not section_key:
+        await update.message.reply_text("⚠️ اختر قسم أول من /start")
+        return
+
+    section = SECTIONS[section_key]
+    thinking_msg = await update.message.reply_text(
+        f"⏳ جاري التنفيذ في {section['name']}...\n\n"
+        f"استنى شوية، وهتجيلك النتيجة تلقائيًا."
+    )
+
+    # شغّلها في الخلفية فورًا
+    asyncio.create_task(
+        process_ai_task(update, context, user_id, text, section_key, thinking_msg)
+    )
 
 
 # ====== FastAPI App ======
